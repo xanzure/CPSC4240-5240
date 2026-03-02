@@ -177,7 +177,7 @@ void mergesort_4way(int* arr, int n) {
     // Use #pragma omp task
 
     // --- TODO: YOUR CODE HERE ---
-    const int SORT_THRESHOLD = 1<<18;
+    const int SORT_THRESHOLD = 1<<17;
     #pragma omp taskgroup
     {
         #pragma omp task shared(p1) firstprivate(s1) if(n >= SORT_THRESHOLD)
@@ -210,7 +210,7 @@ void mergesort_4way(int* arr, int n) {
     // TODO: Launch in parallel tasks calling parallel_binary_merge
 
     // --- TODO: YOUR CODE HERE ---
-    const int MERGE_THRESHOLD = 1<<18;
+    const int MERGE_THRESHOLD = 1<<17;
     #pragma omp taskgroup
     {
         #pragma omp task shared(p1, p2, T) firstprivate(s1, s2) if(n >= MERGE_THRESHOLD)
