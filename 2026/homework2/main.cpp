@@ -42,7 +42,22 @@ public:
 
         // --- TODO: YOUR CODE HERE ---
         // 1. Load head. 2. CAS loop. 3. Handle empty case.
+        PoolNode* old_head = head.load(std::memory_order_acquire);
 
+        while (old_head != nullptr){
+            PoolNode* next = old_head->next;
+
+            if (head.compare_exchange_weak(
+                old_head,
+                next,
+                std::memory_order_acq_rel,
+                std::memory_order_acquire)) 
+            {
+                vec_ptr = old_head->data;
+                delete old_head;
+                break;
+            }
+        }
         // ----------------------
 
         // Fallback: If pool empty, allocate fresh
@@ -60,7 +75,18 @@ public:
     void release_buffer(std::vector<int>* buf) {
         // --- TODO: YOUR CODE HERE ---
         // 1. Create node. 2. CAS loop to push to head.
+        PoolNode* node = new PoolNode();
+        node->data = buf;
 
+        PoolNode* old_head = head.load(std::memory_order_relaxed);
+
+        do{
+            node->next = old_head;
+        } while (!head.compare_exchange_weak(
+            old_head,
+            node,
+            std::memory_order_release,
+            std::memory_order_relaxed));
         // ----------------------
     }
 };
@@ -79,18 +105,62 @@ void seq_merge(int* A, int nA, int* B, int nB, int* C) {
 // Follow the algorithm described in the assignment PDF.
 void parallel_binary_merge(int* A, int nA, int* B, int nB, int* C) {
     // 1. Base Case (use seq_merge)
-
+    if(nA + nB < 1<<12)
+    {
+        seq_merge(A, nA, B, nB, C);
+        return;
+    }
     // 2. Ensure A is larger (Swap if needed)
-
+    if (nA < nB)
+    {
+        std::swap(A, B);
+        std::swap(nA, nB);
+    }
     // 3. Find Median of A
-
+    int mid = nA / 2;
+    int median = A[mid];
     // 4. Binary Search Median in B
-
+    int* bj_ptr = std::lower_bound(B, B + nB, median);
+    int j = static_cast<int>(bj_ptr - B);
     // 5. Place Median in C
+    C[mid + j] = median;
+    //Non-task spawning recursive to reduce overhead for smaller sizes
+    if(nA + nB < 1<<16)
+    {
+        parallel_binary_merge(A, mid, B, j, C);
 
+        parallel_binary_merge(
+            A + mid + 1,
+            nA - (mid + 1),
+            B + j,
+            nB - j,
+            C + (mid + j + 1)
+        );
+        return;
+    }
     // 6. Spawn 2 Recursive Tasks (Left and Right)
-
+    #pragma omp task shared(A, B, C) firstprivate(nA, nB, mid, j)
+    {
+        parallel_binary_merge(
+            A,
+            mid,
+            B,
+            j,
+            C
+        );
+    }
+    #pragma omp task shared(A, B, C) firstprivate(nA, nB, mid, j)
+    {
+        parallel_binary_merge(
+            A + mid + 1,
+            nA - (mid + 1),
+            B + j,
+            nB - j,
+            C + (mid + j + 1)
+        );
+    }
     // 7. Wait
+    #pragma omp taskwait
 }
 
 // ============================================================
@@ -117,7 +187,31 @@ void mergesort_4way(int* arr, int n) {
     // Use #pragma omp task
 
     // --- TODO: YOUR CODE HERE ---
-
+    if(n < 1<<18) //Don't use tasks for smaller sizes
+    {
+        mergesort_4way(p1, s1);
+        mergesort_4way(p2, s2);
+        mergesort_4way(p3, s3);
+        mergesort_4way(p4, s4);
+    } else {
+        #pragma omp task shared(p1) firstprivate(s1)
+        {
+            mergesort_4way(p1, s1);
+        }
+        #pragma omp task shared(p2) firstprivate(s2)
+        {
+            mergesort_4way(p2, s2);
+        }
+        #pragma omp task shared(p3) firstprivate(s3)
+        {
+            mergesort_4way(p3, s3);
+        }
+        #pragma omp task shared(p4) firstprivate(s4)
+        {
+            mergesort_4way(p4, s4);
+        }
+        #pragma omp taskwait
+    }
     // ----------------------
 
     // 2. Acquire Buffer
@@ -131,7 +225,21 @@ void mergesort_4way(int* arr, int n) {
     // TODO: Launch in parallel tasks calling parallel_binary_merge
 
     // --- TODO: YOUR CODE HERE ---
-
+    if(n < 1<<87) //Again, no tasks for smaller sizes
+    {
+        parallel_binary_merge(p1, s1, p2, s2, T);
+        parallel_binary_merge(p3, s3, p4, s4, T_mid);
+    } else {
+        #pragma omp task shared(p1, p2, T) firstprivate(s1, s2)
+        {
+            parallel_binary_merge(p1, s1, p2, s2, T);
+        }
+        #pragma omp task shared(p3, p4, T_mid) firstprivate(s3, s4)
+        {
+            parallel_binary_merge(p3, s3, p4, s4, T_mid);
+        }
+        #pragma omp taskwait
+    }
     // ----------------------
 
     // 4. Final Merge: Left+Right -> Original Array
