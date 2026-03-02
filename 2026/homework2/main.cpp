@@ -9,7 +9,7 @@
 #include <cassert>
 
 // Threshold to switch to sequential execution
-const int SERIAL_THRESHOLD = 4096;
+const int SERIAL_THRESHOLD = 1<<12;
 
 // ============================================================
 // TASK 1: LOCK-FREE BUFFER POOL FOR MERGES
@@ -105,7 +105,7 @@ void seq_merge(int* A, int nA, int* B, int nB, int* C) {
 // Follow the algorithm described in the assignment PDF.
 void parallel_binary_merge(int* A, int nA, int* B, int nB, int* C) {
     // 1. Base Case (use seq_merge)
-    if(nA + nB < 1<<12)
+    if(nA + nB < SERIAL_THRESHOLD)
     {
         seq_merge(A, nA, B, nB, C);
         return;
@@ -124,43 +124,33 @@ void parallel_binary_merge(int* A, int nA, int* B, int nB, int* C) {
     int j = static_cast<int>(bj_ptr - B);
     // 5. Place Median in C
     C[mid + j] = median;
-    //Non-task spawning recursive to reduce overhead for smaller sizes
-    if(nA + nB < 1<<16)
-    {
-        parallel_binary_merge(A, mid, B, j, C);
-
-        parallel_binary_merge(
-            A + mid + 1,
-            nA - (mid + 1),
-            B + j,
-            nB - j,
-            C + (mid + j + 1)
-        );
-        return;
-    }
     // 6. Spawn 2 Recursive Tasks (Left and Right)
-    #pragma omp task shared(A, B, C) firstprivate(nA, nB, mid, j)
+    const int BINARY_MERGE_THRESHOLD = 1<<16;
+    #pragma omp taskgroup
     {
-        parallel_binary_merge(
-            A,
-            mid,
-            B,
-            j,
-            C
-        );
-    }
-    #pragma omp task shared(A, B, C) firstprivate(nA, nB, mid, j)
-    {
-        parallel_binary_merge(
-            A + mid + 1,
-            nA - (mid + 1),
-            B + j,
-            nB - j,
-            C + (mid + j + 1)
-        );
+        #pragma omp task shared(A, B, C) firstprivate(nA, nB, mid, j) if ((nA + nB) >= BINARY_MERGE_THRESHOLD)
+        {
+            parallel_binary_merge(
+                A,
+                mid,
+                B,
+                j,
+                C
+            );
+        }
+        #pragma omp task shared(A, B, C) firstprivate(nA, nB, mid, j) if ((nA + nB)>=BINARY_MERGE_THRESHOLD)
+        {
+            parallel_binary_merge(
+                A + mid + 1,
+                nA - (mid + 1),
+                B + j,
+                nB - j,
+                C + (mid + j + 1)
+            );
+        }
     }
     // 7. Wait
-    #pragma omp taskwait
+    //#pragma omp taskwait Used taskgroup
 }
 
 // ============================================================
@@ -187,30 +177,25 @@ void mergesort_4way(int* arr, int n) {
     // Use #pragma omp task
 
     // --- TODO: YOUR CODE HERE ---
-    if(n < 1<<18) //Don't use tasks for smaller sizes
+    const int SORT_THRESHOLD = 1<<18;
+    #pragma omp taskgroup
     {
-        mergesort_4way(p1, s1);
-        mergesort_4way(p2, s2);
-        mergesort_4way(p3, s3);
-        mergesort_4way(p4, s4);
-    } else {
-        #pragma omp task shared(p1) firstprivate(s1)
+        #pragma omp task shared(p1) firstprivate(s1) if(n >= SORT_THRESHOLD)
         {
             mergesort_4way(p1, s1);
         }
-        #pragma omp task shared(p2) firstprivate(s2)
+        #pragma omp task shared(p2) firstprivate(s2) if(n >= SORT_THRESHOLD)
         {
             mergesort_4way(p2, s2);
         }
-        #pragma omp task shared(p3) firstprivate(s3)
+        #pragma omp task shared(p3) firstprivate(s3) if(n >= SORT_THRESHOLD)
         {
             mergesort_4way(p3, s3);
         }
-        #pragma omp task shared(p4) firstprivate(s4)
+        #pragma omp task shared(p4) firstprivate(s4) if(n >= SORT_THRESHOLD)
         {
             mergesort_4way(p4, s4);
         }
-        #pragma omp taskwait
     }
     // ----------------------
 
@@ -225,20 +210,17 @@ void mergesort_4way(int* arr, int n) {
     // TODO: Launch in parallel tasks calling parallel_binary_merge
 
     // --- TODO: YOUR CODE HERE ---
-    if(n < 1<<87) //Again, no tasks for smaller sizes
+    const int MERGE_THRESHOLD = 1<<18;
+    #pragma omp taskgroup
     {
-        parallel_binary_merge(p1, s1, p2, s2, T);
-        parallel_binary_merge(p3, s3, p4, s4, T_mid);
-    } else {
-        #pragma omp task shared(p1, p2, T) firstprivate(s1, s2)
+        #pragma omp task shared(p1, p2, T) firstprivate(s1, s2) if(n >= MERGE_THRESHOLD)
         {
             parallel_binary_merge(p1, s1, p2, s2, T);
         }
-        #pragma omp task shared(p3, p4, T_mid) firstprivate(s3, s4)
+        #pragma omp task shared(p3, p4, T_mid) firstprivate(s3, s4) if(n >= MERGE_THRESHOLD)
         {
             parallel_binary_merge(p3, s3, p4, s4, T_mid);
         }
-        #pragma omp taskwait
     }
     // ----------------------
 
