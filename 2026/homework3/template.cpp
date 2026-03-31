@@ -36,6 +36,11 @@ struct KDNode {
 
   KDNode() : axis(0), splitValue(0.0), pointIndex(-1),
              left(nullptr), right(nullptr) {}
+
+  //Added a paramterized constructor so I can make a KDNode in one line
+  KDNode(int axisP, double splitValueP, int pointIndexP, KDNode* leftP, KDNode* rightP) :
+             axis(axisP), splitValue(splitValueP), pointIndex(pointIndexP),
+             left(leftP), right(rightP) {}
 };
 
 // DistIndex for storing (distance^2, index)
@@ -57,12 +62,34 @@ KDNode* build_kd_tree(
     int depth = 0
 ) {
   // 1) Base cases: if 0 or 1 points, create a leaf node or return
+  if(indices.size() == 0){
+    return nullptr;
+  }
   // 2) Determine axis = (depth % 2)
+  int axis = depth % 2;
   // 3) Sort indices by that axis (x or y)
+  parlay::sort_inplace(indices, [&](int a, int b)
+  {
+    return (axis == 0) ? points[a].x < points[b].x
+                       : points[a].y < points[b].y;
+  });
   // 4) Find median index
+  int mid = indices.size()/2;
   // 5) Create a node with that pivot
+  int pointIndex = indices[mid];
+  KDNode* node = new KDNode(axis, (axis == 0 ? points[pointIndex].x : points[pointIndex].y), pointIndex, nullptr, nullptr);
   // 6) Recurse left and right in parallel
-  return nullptr; // placeholder
+  if (indices.size() > 1) {
+  parlay::par_do(
+    [&] {
+      node->left = build_kd_tree(indices.cut(0, mid), points, depth + 1);
+    },
+    [&] {
+      node->right = build_kd_tree(indices.cut(mid + 1, indices.size()), points, depth + 1);
+    }
+  );
+}
+  return node;
 }
 
 // KNN Helper: holds a local max-heap of size k
@@ -76,10 +103,33 @@ public:
   // Perform recursive search
   void search(const KDNode* node, const Point2D& q) {
     // TODO:
+    if(node==nullptr){return;}
     // 1) compute dist2 from q to node->pointIndex
+    double dist2 = squared_distance(q, points[node->pointIndex]);
     // 2) update_best if needed
+    update_best(dist2, node->pointIndex);
     // 3) compare q's coordinate to splitValue
+    const KDNode* nearChild = nullptr;
+    const KDNode* farChild = nullptr;
+    double qpnt = (node->axis==0) ? q.x : q.y;
+    if(qpnt >= node->splitValue)
+    {
+      nearChild = node->right;
+      farChild = node->left;
+    } else {
+      nearChild = node->left;
+      farChild = node->right;
+    }
     // 4) search near side, possibly search far side if needed
+    search(nearChild, q);
+    double planeDist2 = std::pow((qpnt - node->splitValue), 2);
+    if(best.size() < k)
+    {
+      search(farChild, q);
+    }else if(planeDist2 < best[0].dist)
+    {
+      search(farChild, q);
+    }
   }
 
   // Return final results sorted by ascending distance
@@ -99,6 +149,17 @@ private:
   // If we have fewer than k, push. Otherwise compare with largest so far.
   void update_best(double dist2, int idx) {
     // TODO: use a max-heap for best and update best with dist2 and idx
+    if(best.size() < k)
+    {
+      best.push_back(DistIndex(dist2, idx));
+      std::push_heap(best.begin(), best.end());
+    }else if (dist2 < best[0].dist)
+    {
+      std::pop_heap(best.begin(), best.end());
+      best.pop_back();
+      best.push_back(DistIndex(dist2, idx));
+      std::push_heap(best.begin(), best.end());
+    }
   }
 };
 
@@ -123,7 +184,23 @@ knn_search_all(const KDNode* root,
 // A function to load points from a file
 parlay::sequence<Point2D> load_points_from_file(const std::string &filename) {
   // TODO: open file, read N, read N lines of x y into a parlay::sequence
-  return {};
+  std::ifstream file(filename);
+
+  if(!file){std::cerr << "Failed to open file\n"; return {};}
+
+  int N;
+  file >> N;
+
+  parlay::sequence<Point2D> points(N);
+
+  for(int i = 0; i < N; i++)
+  {
+    double x, y;
+    file >> x >> y;
+    points[i] = Point2D(x, y);
+  }
+
+  return points;
 }
 
 int main(int argc, char** argv) {
