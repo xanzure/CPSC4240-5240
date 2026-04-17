@@ -1,5 +1,6 @@
 #include "kcore_pipeline.cuh"
 #include <iostream>
+#include <cub/device/device_scan.cuh>
 
 // ============================================================================
 // CUDA KERNEL HEADERS
