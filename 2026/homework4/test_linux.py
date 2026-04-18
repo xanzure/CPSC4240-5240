@@ -141,6 +141,25 @@ def generate_random_graph(n, m, seed=42):
     rng = random.Random(seed)
     edge_set = set()
     directed = []
+    
+    if m > 10000:
+        while len(edge_set) < m:
+            needed = m - len(edge_set)
+            gen_size = int(needed * 1.05) + 1000
+            us = rng.choices(range(n), k=gen_size)
+            vs = rng.choices(range(n), k=gen_size)
+                
+            for u, v in zip(us, vs):
+                if u != v:
+                    key = (u, v) if u < v else (v, u)
+                    if key not in edge_set:
+                        edge_set.add(key)
+                        directed.append((u, v))
+                        directed.append((v, u))
+                        if len(edge_set) == m:
+                            break
+        return n, directed
+
     attempts = 0
     while len(edge_set) < m and attempts < m * 20:
         u = rng.randint(0, n - 1)
