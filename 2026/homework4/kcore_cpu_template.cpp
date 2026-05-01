@@ -34,6 +34,7 @@ CSRGraph build_csr_cpu(const parlay::sequence<Edge>& edges, int num_vertices) {
         
         // TODO: Calculate the difference between end_it and start_it to find the degree
         // degrees[i] = ...;
+        degrees[i] = end_it - start_it;
     });
     
     // -------------------------------------------------------------------------
@@ -49,7 +50,8 @@ CSRGraph build_csr_cpu(const parlay::sequence<Edge>& edges, int num_vertices) {
     
     // TODO: Set the very last element of row_offsets to the total number of edges
     // graph.row_offsets[num_vertices] = ...;
-    
+    graph.row_offsets[num_vertices] = total_edges;
+
     // -------------------------------------------------------------------------
     // 4. Column Indices Population
     // -------------------------------------------------------------------------
@@ -57,6 +59,7 @@ CSRGraph build_csr_cpu(const parlay::sequence<Edge>& edges, int num_vertices) {
         // TODO: Map destination vertices `v` directly from sorted_edges 
         // into graph.column_indices  
         // graph.column_indices[i] = ...;
+        graph.column_indices[i] = sorted_edges[i].v;
     });
     
     return graph;
